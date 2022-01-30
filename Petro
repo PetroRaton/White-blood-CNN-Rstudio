@@ -1,0 +1,259 @@
+
+library(keras)
+library(tidyverse)
+library(stringr)
+library(imager)
+
+########################################################################
+#               Transformación de datos                                #
+########################################################################
+
+Eosinophil <- list.files(path = "C:/Users/Petro/Desktop/image/TRAIN/EOSINOPHIL")
+Lymphocyte <- list.files(path = "C:/Users/Petro/Desktop/image/TRAIN/LYMPHOCYTE" )
+Monocyte <- list.files(path = "C:/Users/Petro/Desktop/image/TRAIN/MONOCYTE")
+Neutrophil <- list.files(path = "C:/Users/Petro/Desktop/image/TRAIN/NEUTROPHIL")
+
+Eosinophil_test <- list.files(path = "C:/Users/Petro/Desktop/image/TEST/EOSINOPHIL")
+Lymphocyte_test <- list.files(path = "C:/Users/Petro/Desktop/image/TEST/LYMPHOCYTE" )
+Monocyte_test <- list.files(path = "C:/Users/Petro/Desktop/image/TEST/MONOCYTE")
+Neutrophil_test <- list.files(path = "C:/Users/Petro/Desktop/image/TEST/NEUTROPHIL")
+
+
+
+clases <- c("Eosinophil", "Lymphocyte", "Monocyte", "Neutrophil")
+
+n_clases <- length(clases)
+
+size = 150
+target_size <- c(img_width, img_height)
+
+channels <- 3
+
+
+
+train <- c(
+          Eosinophil[1:20],
+          Lymphocyte[1:20],
+          Monocyte[1:20],
+          Neutrophil[1:20]
+)
+
+train <- sample(train)
+
+evaluation <- c(
+          Eosinophil[21:25],
+          Lymphocyte[21:25],
+          Monocyte[21:25],
+          Neutrophil[21:25])
+
+evaluation <- sample(evaluation)
+
+test <- c(
+          Eosinophil_test,
+          Lymphocyte_test,
+          Monocyte_test,
+          Neutrophil_test
+)
+
+test <- sample(test)
+
+data_prep <- function(images, size, channels, path, list_img) {
+  
+  n_clases <- length(clases)
+  master_array <- array(NA, dim = c(n_clases, size, size, channels))
+  
+  for (i in seq(length(clases)))    {
+    
+    for (j in 1:length(clases))   {
+      if(images[i] %in% list_img[[j]])   {
+        img_path <- paste0(path,  n_clases[[j]], "/", images[i])
+        break
+      }
+    }
+    img <- image_load(path = img_path, target_size = c(size, size))
+    img_arr <- image_to_array(img)
+ #   img <- load.image(paste("../input/train/", images[i], sep=""))
+#     img <-  resize(img,size_x = size, size_y = size, size_c = channels)
+#     img_arr <- array_reshape(img, c(1, size, size, channels))
+#     img_arr <- image_to_array(img)
+    img_arr <- array_reshape(img_arr, c(4, size, size, channels))
+    master_array[i,,,] <- img_arr
+  } 
+  return(master_array)
+}
+
+label_prep <- function(images, list_img)   {
+  y <- c()
+  for (i in seq(length(clases)))   {
+    
+    for (j in 1 : length(clases))   {
+      if (images[i] %in% list_img[[j]])    {
+        y <- append(y, j-1)
+        break
+      }
+    }
+  }
+  return(y)
+}
+
+list_img_train <- list(Eosinophil[1:25], Lymphocyte[1:25], Monocyte[1:25], Neutrophil[1:25])
+
+list_img_test <- list(Eosinophil_test, Lymphocyte_test, Monocyte_test, Neutrophil_test)
+
+
+X_train <- data_prep(train, size, channels, "C:/Users/Petro/Desktop/image/TRAIN/", list_img_train)
+X_evaluation <- data_prep(evaluation, size, channels, "C:/Users/Petro/Desktop/image/TRAIN/", list_img_train)
+X_test <- data_prep(test, size, channels, "C:/Users/Petro/Desktop/image/TEST/", list_img_test)
+
+y_train <- to_categorical(y_train)
+y_evaluation <- to_categorical(y_evaluation)
+y_test <- to_categorical(y_test)
+
+
+
+########################################################################
+#               Aumento  de datos                                      #
+########################################################################
+
+train_datagen <- image_data_generator(rescale = 1/255,
+                                      width_shift_range = 0.2,
+                                      height_shift_range = 0.2,
+                                      shear_range = 0.2,
+                                      zoom_range = 0.2,
+                                      horizontal_flip = TRUE)   
+
+validation_datagen <- image_data_generator(rescale = 1/255)   
+test_datagen <- image_data_generator(rescale = 1/255)
+
+########################################################################
+#               Generador de datos                                     #
+########################################################################
+
+train_generator <- flow_images_from_data(
+  x = X_train, 
+  y = y_train,
+ 
+  generator = train_datagen, 
+  
+  batch_size = 10
+)
+
+validation_generator <- flow_images_from_data(
+  x = X_evaluation, 
+  y = y_evaluation,
+ 
+  generator = validation_datagen,                                                                                       
+  batch_size = 10
+)
+
+test_generator <- flow_images_from_data(
+  x = X_test,
+  y = y_test,
+  
+  generator = test_datagen,
+  batch_size = 10
+)
+
+rm(X_train, y_train, X_evaluation, y_evaluation)
+rm(list_img_train, train, evaluation)
+
+########################################################################
+#               Arquitectura del modelo de CNN                         #
+########################################################################
+
+model <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3, 3), activation = "relu",
+                input_shape = c(150, 150, 3)) %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_conv_2d(filters = 128, kernel_size = c(3, 3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  layer_flatten() %>%
+  layer_dropout(0.5)  %>% 
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dense(units = 4, activation = "softmax")
+
+summary(model)
+
+########################################################################
+#               Compilador de modelos                                  #
+########################################################################
+
+model %>% compile(
+  loss = "sparse_categorical_crossentropy",
+  optimizer = optimizer_adam(lr = 1e-3),
+  metrics = c("accuracy")
+)
+
+########################################################################
+#               Fase de entrenamiento                                 #
+########################################################################
+
+
+
+history <- model %>% fit_generator(
+  train_generator,
+  steps_per_epoch = 20,
+  epochs = 5,
+  validation_data = validation_generator,
+  validation_steps = 25,
+  callbacks = list(
+    callback_early_stopping(patience = 5, monitor = "accuracy", mode = "max")
+  )
+)
+
+
+plot(history)
+
+summary(model)
+
+model %>% evaluate_generator(validation_generator, steps = 25)
+
+########################################################################
+#               Guardar modelo                                         #
+########################################################################
+
+model %>% save_model_hdf5("m_1_Tesis.hdf5")
+
+load_model <- load_model_hdf5("m_1_Tesis_.hdf5")
+load_model %>% summary()
+
+model %>% save_model_hdf5("2CSO_1_Tesis_pixel150.hdf5")
+########################################################################
+#              Evaluación del modelo                                   #
+########################################################################
+
+load_model %>% evaluate_generator(test_generator, steps = 25)
+
+
+
+
+
+
+
+
+
+
+consulta <- function(x){
+  ifelse(!('keras' %in% installed.packages()), 
+         (install.packages('keras')&library('keras')), 
+         library('keras'))
+  model <- load_model_hdf5("m_1_Tesis.hdf5")
+  setwd("C:/Users/Petro/Desktop/image/")
+  pixel <- 150 #nuemro de pixeles para reescalar
+  leukemia <- file.choose() #imagen para reconocimiento
+  img <- image_load(leukemia, target_size = c(pixel, pixel))
+  img_tensor <- image_to_array(img)
+  img_tensor <- array_reshape(img_tensor, c(1, pixel, pixel, 3))
+  img_tensor <- img_tensor / 255
+  b <- dim(img_tensor)
+  plot(as.raster(img_tensor[1,,,]))
+  precision <- model %>% predict(img_tensor)
+  analisis <- ifelse(precision[,1] > precision[,2], 'EOSINOPHIL', 'NEUTROPHIL')
+  print(paste("El modelo fue cargado y analizado existosamente en un formato de:", pixel, "leukemia", pixel, "y 3 canales de color RGB. Diagnosticando lo siguiente: ", analisis, ", con la probabilidad que se indica"))
+  precision}
+
+consulta()
